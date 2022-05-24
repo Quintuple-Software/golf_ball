@@ -1,0 +1,72 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: train",
+            "type": "python",
+            "request": "launch",
+            "program": "trainval_net.py",
+            "args": [
+                "--dataset",
+                "pascal_voc",
+                "--net",
+                "res101",
+                "--bs",
+                "4",
+                "--nw",
+                "1",
+                "--lr",
+                "0.004",
+                "--lr_decay_step",
+                "8",
+                "--epochs",
+                "7",
+                "--cuda",
+            ],
+            "args2": [
+                "--start_epoch",
+                "3",
+                "--checkepoch",
+                "3",
+                "--checkpoint",
+                "1377",
+                "--r",
+                "True",
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: run",
+            "type": "python",
+            "request": "launch",
+            "program": "demo.py",
+            "args": [
+                "--net",
+                "res101",
+                "--checksession",
+                "1",
+                "--checkepoch",
+                "7",
+                "--checkpoint",
+                "2756",
+                "--cuda",
+                "--load_dir",
+                "models"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

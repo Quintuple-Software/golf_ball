@@ -1,9 +1,10 @@
 cython
 cffi
-opencv-python
+#opencv-python
 scipy==1.1.0
 msgpack
-easydict
-matplotlib==3.0.0
+#easydict
+#matplotlib==3.0.0
 pyyaml
 tensorboardX
+#torch==1.3.0
