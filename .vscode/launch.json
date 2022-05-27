@@ -110,6 +110,15 @@
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: reconstruct",
+            "type": "python",
+            "request": "launch",
+            "program": "reconstruct.py",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }
