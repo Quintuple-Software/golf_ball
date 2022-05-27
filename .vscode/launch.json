@@ -63,7 +63,50 @@
                 "2756",
                 "--cuda",
                 "--load_dir",
-                "models"
+                "models/",
+                "--video_path",
+                "videos/IMG_6078-20.83-converted.mov",
+                "--out_path",
+                "videos/output/IMG_6078-20.83-converted.avi"
+            ],
+            "args_": [
+                "--video_path",
+                "videos/67382978926__6E34F44B-A268-427A-B7A5-ACB8C821EB13-30.50.mov",
+                "--out_path",
+                "videos/output/67382978926__6E34F44B-A268-427A-B7A5-ACB8C821EB13-30.50.avi"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python: tracking",
+            "type": "python",
+            "request": "launch",
+            "program": "tracking.py",
+            "args": [
+                "--checksession",
+                "1",
+                "--checkepoch",
+                "7",
+                "--checkpoint",
+                "2756",
+                "--cuda",
+                "--video_path",
+                "videos/IMG_6078-20.83-converted.mov",
+                "--out_path",
+                "videos/output/IMG_6078-20.83-converted.avi",
+                "--init_x",
+                "614",
+                "--init_y",
+                "1222",
+                "--start_frame",
+                "389",
+            ],
+            "args_": [
+                "--init_x",
+                "676, 682",
+                "--init_y",
+                "1012, 1484"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"

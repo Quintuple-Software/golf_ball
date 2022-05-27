@@ -53,9 +53,22 @@ def vis_detections(im, class_name, dets, thresh=0.8):
         bbox = tuple(int(np.round(x)) for x in dets[i, :4])
         score = dets[i, -1]
         if score > thresh:
-            cv2.rectangle(im, bbox[0:2], bbox[2:4], (0, 204, 0), 2)
+            cv2.rectangle(im, bbox[0:2], bbox[2:4], (204, 0, 0), 4)
             cv2.putText(im, '%s: %.3f' % (class_name, score), (bbox[0], bbox[1] + 15), cv2.FONT_HERSHEY_PLAIN,
                         1.0, (0, 0, 255), thickness=1)
+    return im
+
+
+def vis_detections_2(im, det, score):
+    """Visual debugging of detections."""
+    
+    if det is None:
+        return im
+    bbox = det
+    #cv2.rectangle(im, bbox[0:2], bbox[2:4], (0, 204, 0), 2)
+    cv2.rectangle(im, bbox[0:2], bbox[2:4], (255, 0, 0), 4)
+    cv2.putText(im, '%.3f' % (score), (bbox[0], bbox[1] + 15), cv2.FONT_HERSHEY_PLAIN,
+                1.0, (0, 0, 255), thickness=1)
     return im
 
 

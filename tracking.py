@@ -7,31 +7,25 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import _init_paths
 import os
 import sys
 import numpy as np
 import argparse
+import math
 import pprint
 import pdb
 import time
 import cv2
 import torch
 from torch.autograd import Variable
-import torch.nn as nn
-import torch.optim as optim
 
-import torchvision.transforms as transforms
-import torchvision.datasets as dset
 from scipy.misc import imread
-from roi_data_layer.roidb import combined_roidb
-from roi_data_layer.roibatchLoader import roibatchLoader
-from model.utils.config import cfg, cfg_from_file, cfg_from_list, get_output_dir
+from model.utils.config import cfg, cfg_from_file, cfg_from_list
 from model.rpn.bbox_transform import clip_boxes
 # from model.nms.nms_wrapper import nms
 from model.roi_layers import nms
 from model.rpn.bbox_transform import bbox_transform_inv
-from model.utils.net_utils import save_net, load_net, vis_detections
+from model.utils.net_utils import vis_detections_2
 from model.utils.blob import im_list_to_blob
 from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
@@ -62,7 +56,7 @@ def parse_args():
                       nargs=argparse.REMAINDER)
   parser.add_argument('--load_dir', dest='load_dir',
                       help='directory to load models',
-                      default="/srv/share/jyang375/models")
+                      default="models")
   parser.add_argument('--input_image_dir', dest='input_image_dir',
                       help='directory to load images for demo',
                       default="images/input")
@@ -105,13 +99,18 @@ def parse_args():
   parser.add_argument('--out_path', dest='out_path',
                       help='output video file path',
                       default="", type=str)
+  parser.add_argument('--init_x', dest='init_x',
+                      help='initial position',
+                      default="0", type=int)
+  parser.add_argument('--init_y', dest='init_y',
+                      help='initial position',
+                      default="0", type=int)
+  parser.add_argument('--start_frame', dest='start_frame',
+                      help='start frame index',
+                      default="0", type=int)
 
   args = parser.parse_args()
   return args
-
-lr = cfg.TRAIN.LEARNING_RATE
-momentum = cfg.TRAIN.MOMENTUM
-weight_decay = cfg.TRAIN.WEIGHT_DECAY
 
 def _get_image_blob(im):
   """Converts an image into a network input.
@@ -147,6 +146,97 @@ def _get_image_blob(im):
 
   return blob, np.array(im_scale_factors)
 
+def _get_sub_image(im, pos, ratio):
+    margin = int(168 / ratio)
+    h, w = im.shape[0], im.shape[1]
+
+    top = pos[1] - margin
+    left = pos[0] - margin
+    bottom = pos[1] + margin
+    right = pos[0] + margin
+
+    if top < 0:
+        top = 0
+        bottom = top + margin * 2
+    if left < 0:
+        left = 0
+        right = left + margin * 2
+    if right >= w:
+        right = w - 1
+        left = right - margin * 2
+    if bottom >= h:
+        bottom = h - 1
+        top = bottom - margin * 2
+
+    width = int((right - left)*ratio)
+    height = int((bottom - top)*ratio)
+
+    offset = (left, top)
+    return cv2.resize(im[top:bottom, left:right], (width, height), interpolation=cv2.INTER_CUBIC), offset
+
+def _get_best_det(dets, last_pos, offset, ratio, last_ball_size, thresh):
+    best_bbox = None
+    best_score = 0
+    best_ratio = 2
+
+    noise = 20 / ratio * 10
+    size_factor = 1.8
+
+    count = np.minimum(10, dets.shape[0])
+    if count > 1:
+      a = 1
+    for i in range(count):
+        bbox = tuple(int(np.round(x)) for x in dets[i, :4])
+        bbox = (
+          int(bbox[0] / ratio) + offset[0],
+          int(bbox[1] / ratio) + offset[1],
+          int(bbox[2] / ratio) + offset[0],
+          int(bbox[3] / ratio) + offset[1]
+          )
+        score = dets[i, -1]
+
+        # filter by score
+        if score < thresh:
+          continue
+
+        dist = (bbox[0] + bbox[2] - last_pos[0]*2) * (bbox[0] + bbox[2] - last_pos[0]*2) + (bbox[1] + bbox[3] - last_pos[1]*2) * (bbox[1] + bbox[3] - last_pos[1]*2)
+        dist = math.sqrt(dist)
+        
+        # filter by distance
+        if dist > noise:
+          continue        
+        
+        # get the best size fit
+        ball_size = calc_ball_size(bbox)
+        size_ratio = 1
+        if last_ball_size is not None:
+          size_ratio = ball_size / last_ball_size
+          if size_ratio < 1:
+            size_ratio = 1 / size_ratio
+          #if ball_size > last_ball_size * size_factor or ball_size < last_ball_size / size_factor:
+          #  continue
+
+        if best_ratio > size_ratio:
+            best_score = score
+            best_bbox = bbox
+            best_ratio = size_ratio
+
+    return best_bbox, best_score
+
+def calc_ratio(ball_size, expected_ball_size):
+  ratio = expected_ball_size / ball_size
+  ratio = int(math.pow(2, math.ceil(math.log2(ratio))))
+  if ratio < 1:
+    ratio = 1
+  if ratio > 16:
+    ratio = 16
+  return ratio
+
+def calc_ball_size(det):
+  ball_size = (det[2] - det[0]) * (det[3] - det[1])
+  ball_size = math.sqrt(ball_size)
+  return ball_size
+
 if __name__ == '__main__':
 
   args = parse_args()
@@ -174,14 +264,6 @@ if __name__ == '__main__':
   load_name = os.path.join(input_dir,
     'faster_rcnn_{}_{}_{}.pth'.format(args.checksession, args.checkepoch, args.checkpoint))
 
-  """
-  pascal_classes = np.asarray(['__background__',
-                       'aeroplane', 'bicycle', 'bird', 'boat',
-                       'bottle', 'bus', 'car', 'cat', 'chair',
-                       'cow', 'diningtable', 'dog', 'horse',
-                       'motorbike', 'person', 'pottedplant',
-                       'sheep', 'sofa', 'train', 'tvmonitor'])
-  """
   pascal_classes = np.asarray(['__background__',
                        'golfball'])
 
@@ -245,7 +327,8 @@ if __name__ == '__main__':
 
   start = time.time()
   max_per_image = 100
-  thresh = 0.01
+  thresh = 0.05
+  lost_count_thresh = 10
   vis = True
 
   webcam_num = args.webcam_num
@@ -264,6 +347,15 @@ if __name__ == '__main__':
 
   print('Loaded Photo: {} images.'.format(num_images))
 
+  pos = (args.init_x, args.init_y)
+
+  zoom_ratio = 1
+  expected_ball_size = 15
+  lost_count = 0
+  last_ball_size = None
+
+  f = open("output.txt", "w")
+  f.write(f'frame,x,y,w,h,track,size,zoom\n')
 
   frame_index = 0
   while (num_images >= 0):
@@ -302,11 +394,14 @@ if __name__ == '__main__':
       # rgb -> bgr
       im = im_in[:,:,::-1]
 
-      #if frame_index % 10 != 1:
-      if frame_index != 401:
+      if frame_index < args.start_frame:
         continue
 
-      blobs, im_scales = _get_image_blob(im)
+      ratio = zoom_ratio
+      sub_im, offset = _get_sub_image(im, pos, ratio=ratio)
+      cv2.imwrite("sub_im.jpg", cv2.cvtColor(sub_im, cv2.COLOR_BGR2RGB))
+      
+      blobs, im_scales = _get_image_blob(sub_im)
       assert len(im_scales) == 1, "Only single-image batch implemented"
       im_blob = blobs
       im_info_np = np.array([[im_blob.shape[1], im_blob.shape[2], im_scales[0]]], dtype=np.float32)
@@ -370,6 +465,7 @@ if __name__ == '__main__':
       misc_tic = time.time()
       if vis:
           im2show = np.copy(im)
+      detected = False
       for j in xrange(1, len(pascal_classes)):
           inds = torch.nonzero(scores[:,j]>thresh).view(-1)
           # if there is det
@@ -387,8 +483,35 @@ if __name__ == '__main__':
             # keep = nms(cls_dets, cfg.TEST.NMS, force_cpu=not cfg.USE_GPU_NMS)
             keep = nms(cls_boxes[order, :], cls_scores[order], cfg.TEST.NMS)
             cls_dets = cls_dets[keep.view(-1).long()]
+
+            det, score = _get_best_det(cls_dets.cpu().numpy(), pos, offset, ratio, last_ball_size, thresh=0.5)
+            if det is not None:
+              pos = (int((det[0] + det[2])/2), int((det[1] + det[3])/2))
+              last_det = det
+              ball_size = calc_ball_size(det)
+
+              cur_ratio = calc_ratio(ball_size, expected_ball_size)
+              if zoom_ratio < cur_ratio:
+                zoom_ratio = cur_ratio
+              if last_ball_size is None or last_ball_size > ball_size:
+                last_ball_size = int(ball_size)
+              detected = True
             if vis:
-              im2show = vis_detections(im2show, pascal_classes[j], cls_dets.cpu().numpy(), thresh=0.01)
+              im2show = vis_detections_2(im2show, det, score)
+
+      if detected:
+        lost_count = 0
+        print(f'  Zoom: {zoom_ratio}x  Size: {int(last_ball_size)}  tracked')
+      else:
+        lost_count = lost_count + 1
+        print(f'  lost {lost_count}')
+
+      f.write(f'{frame_index},{last_det[0]},{last_det[1]},{last_det[2]-last_det[0]},{last_det[3]-last_det[1]},{detected},{last_ball_size},{zoom_ratio}\n')
+      f.flush()
+
+      if lost_count >= lost_count_thresh:
+        print('  break')
+        break
 
       misc_toc = time.time()
       nms_time = misc_toc - misc_tic
@@ -405,18 +528,19 @@ if __name__ == '__main__':
           cv2.imwrite(result_path, im2show)
       else:
           im2showRGB = cv2.cvtColor(im2show, cv2.COLOR_BGR2RGB)
-          result_path = os.path.join(args.output_image_dir, f"{frame_index}_det.jpg")
-          cv2.imwrite(result_path, im2showRGB)
+          #result_path = os.path.join(args.output_image_dir, f"{frame_index}_det.jpg")
+          #cv2.imwrite(result_path, im2showRGB)
           out.write(im2showRGB)
-          #cv2.imwrite("temp.jpg", im2showRGB)
+          cv2.imwrite("temp.jpg", im2showRGB)
           #cv2.imshow("frame", im2showRGB)
           total_toc = time.time()
           total_time = total_toc - total_tic
           frame_rate = 1 / total_time
-          print('Frame rate:', frame_rate)
+          print(f'[{frame_index}] [{pos[0]}, {pos[1]}] Frame rate:', frame_rate)
           #if cv2.waitKey(1) & 0xFF == ord('q'):
           #    break
   if webcam_num >= 0 or video_path != "":
       cap.release()
       out.release()
       #cv2.destroyAllWindows()
+      f.close()
