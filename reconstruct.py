@@ -1,7 +1,31 @@
 import cv2
 import math
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+Axes3D = Axes3D  # pycharm auto import
+from scipy.optimize import curve_fit
+
+
+def func3(t, a, b, c, d):
+    #return (((a*t + b)*t + c)*t + d)*t + e
+    return ((a*t + b)*t + c)*t + d
+
+
+def func2(t, a, b, c):
+    return (a*t + b)*t + c
+
+
+def funcx(t, a, b, c, d, e):
+    return func3(t,a,b,c,d)
+
+def funcy(t, a, b, c, d, e):
+    return func2(t,a,b,c)
+
+def funcz(t, a, b, c, d, e):
+    return func2(t,a,b,c)
 
 
 class Reconstructor:
@@ -119,7 +143,7 @@ class Reconstructor:
         z = depth
         x = (bbox[0] - self.cx) / fx * depth
         y = -(bbox[1] - self.cy) / fy * depth
-        z = -z
+        z = z
         
         return (x,y,z)
 
@@ -137,6 +161,33 @@ class Reconstructor:
             pt = self.pts[i]
             self.pts[i] = [x1-x2 for x1,x2 in zip(pt, first_pt)]
     
+    def fit(self):
+        count = len(self.pts)
+        tdata = np.linspace(0, count - 1, count)
+        xdata = np.array([pt[0] for pt in self.pts])
+        ydata = np.array([pt[1] for pt in self.pts])
+        zdata = np.array([pt[2] for pt in self.pts])
+
+        tdata = np.append(tdata, count*3)
+        xdata = np.append(xdata, 0)
+        ydata = np.append(ydata, 0)
+        zdata = np.append(zdata, zdata[-1]*2.5)
+
+        popt_x, pcov = curve_fit(funcx, tdata, xdata)
+        popt_y, _ = curve_fit(funcy, tdata, ydata)
+        popt_z, _ = curve_fit(funcz, tdata, zdata)
+
+        ltdata = np.linspace(0, count*3 - 1, count*3)
+        self.xdata = funcx(ltdata, *popt_x)
+        self.ydata = funcy(ltdata, *popt_y)
+        self.zdata = funcz(ltdata, *popt_z)
+        self.tdata = ltdata
+
+        #self.pts.append([0, 0, zdata[-1]])
+        self.trajectory = []
+        for t, x, y, z in zip(tdata, xdata, ydata, zdata):
+            self.trajectory.append((t,x,y,z))
+
     def play(self):
         # Blue color in BGR
         color = (255, 0, 0)
@@ -161,30 +212,41 @@ class Reconstructor:
             print(pt)
 
     def plot(self):
-        fig = plt.figure()
-        ax = plt.axes(projection='3d')
+        #plt.ioff()
+        
+        #fig = plt.figure()
+        #fig, ax = plt.subplots()  # a figure with a single Axes
+        fig, axs = plt.subplots(2, 1)  # a figure with a 2x2 grid of Axes
 
         xline = [pt[0] for pt in self.pts]
         yline = [pt[1] for pt in self.pts]
         zline = [pt[2] for pt in self.pts]
 
-        # Data for a three-dimensional line
-        ax.plot3D(xline, yline, zline, 'gray')
+        ax1 = axs[0]
+        out = ax1.plot(zline, yline, color='red')
+        #ax1.plot(self.zdata, self.ydata)
+        ax1.scatter(self.zdata, self.ydata, c=self.tdata)
+        ax1.set_xlabel('z -> far')
+        ax1.set_ylabel('y -> up')
+        ax1.set_title('A plot in the Z-Y plane')
 
-        # Data for three-dimensional scattered points
-        xdata = xline
-        ydata = yline
-        zdata = zline
-        ax.scatter3D(xdata, ydata, zdata, c=zdata, cmap='Greens')
+        #ax.text(75, .025, r'$\mu=115,\ \sigma=15$')
 
-        ax.set_xlabel('x -> right')
-        ax.set_ylabel('y -> up')
-        ax.set_zlabel('z -> back')
+        #plt.title('3D Trajectory')
 
-        plt.title('3D Trajectory')
+        ax2 = axs[1]
+        out = ax2.plot(xline, yline, color='red')
+        #ax2.plot(self.xdata, self.ydata)
+        ax2.scatter(self.xdata, self.ydata, c=self.tdata)
+        ax2.set_xlabel('x -> right')
+        ax2.set_ylabel('y -> up')
+        ax2.set_title('A plot in the X-Y plane')
+
+        fig.tight_layout()
+        plt.axis('equal')
 
         plt.savefig('plot.png', dpi=300, bbox_inches='tight', pad_inches=0.1)
-        plt.show()
+        #plt.show()
 
     def export(self):
         f = open("trajectory.txt", "w")
@@ -194,8 +256,9 @@ class Reconstructor:
 
 if __name__ == '__main__':
     reconstructor = Reconstructor('')
-    reconstructor.build(filter_depth=True)
+    reconstructor.build(filter_depth=False)
+    reconstructor.fit()
     #reconstructor.play()
     #reconstructor.dump()
-    #reconstructor.plot()
+    reconstructor.plot()
     reconstructor.export()

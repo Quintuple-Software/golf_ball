@@ -237,6 +237,15 @@ def calc_ball_size(det):
   ball_size = math.sqrt(ball_size)
   return ball_size
 
+def predict(tracks):
+  if len(tracks) == 0:
+    return None
+  if len(tracks) == 1:
+    return tracks[0]
+  pt2 = tracks[-1]
+  pt1 = tracks[-2]
+  return (pt2[0]*2-pt1[0], pt2[1]*2-pt1[1])
+
 if __name__ == '__main__':
 
   args = parse_args()
@@ -347,6 +356,7 @@ if __name__ == '__main__':
 
   print('Loaded Photo: {} images.'.format(num_images))
 
+  tracks = []
   pos = (args.init_x, args.init_y)
 
   zoom_ratio = 1
@@ -486,15 +496,18 @@ if __name__ == '__main__':
 
             det, score = _get_best_det(cls_dets.cpu().numpy(), pos, offset, ratio, last_ball_size, thresh=0.5)
             if det is not None:
-              pos = (int((det[0] + det[2])/2), int((det[1] + det[3])/2))
+              # update position
               last_det = det
-              ball_size = calc_ball_size(det)
+              pos = (int((det[0] + det[2])/2), int((det[1] + det[3])/2))
 
+              # update size ratio and ball size
+              ball_size = calc_ball_size(det)
               cur_ratio = calc_ratio(ball_size, expected_ball_size)
               if zoom_ratio < cur_ratio:
                 zoom_ratio = cur_ratio
               if last_ball_size is None or last_ball_size > ball_size:
                 last_ball_size = int(ball_size)
+
               detected = True
             if vis:
               im2show = vis_detections_2(im2show, det, score)
@@ -504,7 +517,10 @@ if __name__ == '__main__':
         print(f'  Zoom: {zoom_ratio}x  Size: {int(last_ball_size)}  tracked')
       else:
         lost_count = lost_count + 1
+        pos = predict(tracks)
         print(f'  lost {lost_count}')
+
+      tracks.append(pos)
 
       f.write(f'{frame_index},{last_det[0]},{last_det[1]},{last_det[2]-last_det[0]},{last_det[3]-last_det[1]},{detected},{last_ball_size},{zoom_ratio}\n')
       f.flush()
